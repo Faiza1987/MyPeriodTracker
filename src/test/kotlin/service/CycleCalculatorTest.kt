@@ -2,6 +2,7 @@ package service
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.tracker.model.IntercourseEvent
 import org.tracker.models.CycleEntry
 import org.tracker.models.PregnancyRisk
 import org.tracker.models.UserProfile
@@ -125,17 +126,23 @@ class CycleCalculatorTest {
         val fertileWindow = fertileStart to fertileEnd
 
         val today = LocalDate.of(2025, 1, 12)
-        val intercourseDays = listOf(LocalDate.of(2025, 1, 11))
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
 
         // Act
-        val result = cycleCalculator.calculatePregnancyRisk(
+        val assessment = cycleCalculator.calculatePregnancyRisk(
             today = today,
             fertileWindow = fertileWindow,
-            intercourseDays = intercourseDays
+            intercourseEvents = intercourseEvents
         )
 
         // Assert
-        assertEquals(PregnancyRisk.HIGH, result)
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
     }
 
     @Test
@@ -146,17 +153,17 @@ class CycleCalculatorTest {
         val fertileWindow = fertileStart to fertileEnd
 
         val today = LocalDate.of(2025, 1, 11)
-        val intercourseDays = emptyList<LocalDate>()
+        val intercourseDays = emptyList<IntercourseEvent>()
 
         // Act
-        val result = cycleCalculator.calculatePregnancyRisk(
+        val assessment = cycleCalculator.calculatePregnancyRisk(
             today = today,
             fertileWindow = fertileWindow,
-            intercourseDays = intercourseDays
+            intercourseEvents = intercourseDays
         )
 
         // Assert
-        assertEquals(PregnancyRisk.MEDIUM, result)
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
     }
 
     @Test
@@ -167,26 +174,37 @@ class CycleCalculatorTest {
         val fertileWindow = fertileStart to fertileEnd
 
         val today = LocalDate.of(2025, 1, 20)
-        val intercourseDays = listOf(LocalDate.of(2025, 1, 11))
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
 
         // Act
-        val result = cycleCalculator.calculatePregnancyRisk(
+        val assessment = cycleCalculator.calculatePregnancyRisk(
             today = today,
             fertileWindow = fertileWindow,
-            intercourseDays = intercourseDays
+            intercourseEvents = intercourseEvents
         )
 
         // Assert
-        assertEquals(PregnancyRisk.LOW, result)
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
     }
 
     @Test
     fun `generateCycleSummary returns correct values`() {
+        // Arrange
         val today = LocalDate.of(2025, 1, 12)
 
         val cycle = CycleEntry(
             periodStart = LocalDate.of(2025, 1, 1),
-            unprotectedIntercourseDays = listOf(LocalDate.of(2025, 1, 11))
+            intercourseEvents = listOf(
+                IntercourseEvent(
+                    date = LocalDate.of(2025, 1, 11),
+                    protected = false
+                )
+            )
         )
 
         val user = UserProfile(
@@ -194,8 +212,10 @@ class CycleCalculatorTest {
             cycles = listOf(cycle)
         )
 
+        // Act
         val summary = cycleCalculator.generateCycleSummary(today, user)
 
+        // Assert
         assertEquals(12, summary.cycleDay)
         assertEquals(
             LocalDate.of(2025, 1, 9),
@@ -205,8 +225,272 @@ class CycleCalculatorTest {
             LocalDate.of(2025, 1, 14),
             summary.fertileWindow.second
         )
-        assertEquals(PregnancyRisk.HIGH, summary.pregnancyRisk)
+        assertEquals(PregnancyRisk.HIGH, summary.pregnancyRiskAssessment.risk)
     }
 
+    @Test
+    fun `returns HIGH risk when today is first day of fertile window and intercourse occurred that day`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 9)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 9),
+                protected = false
+            )
+        )
 
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when today is last day of fertile window and intercourse occurred earlier in window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 14)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `returns MEDIUM risk when today is on fertile boundary but no intercourse occurred`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 14)
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = emptyList()
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns LOW risk when intercourse occurred only outside fertile window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 5), // outside window
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns LOW risk when today is outside fertile window even if intercourse occurred during fertile window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 16)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when multiple intercourse days include at least one fertile day`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 11)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `pregnancy risk decision table`() {
+        val calculator = CycleCalculator()
+
+        assertEquals(
+            PregnancyRisk.HIGH,
+            cycleCalculator.pregnancyRiskDecision(true, true)
+        )
+
+        assertEquals(
+            PregnancyRisk.MEDIUM,
+            cycleCalculator.pregnancyRiskDecision(true, false)
+        )
+
+        assertEquals(
+            PregnancyRisk.LOW,
+            cycleCalculator.pregnancyRiskDecision(false, true)
+        )
+
+        assertEquals(
+            PregnancyRisk.LOW,
+            cycleCalculator.pregnancyRiskDecision(false, false)
+        )
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns HIGH when fertile window and unprotected intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = true,
+            unprotectedIntercourseInWindow = true
+        )
+
+        assertEquals(PregnancyRisk.HIGH, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns MEDIUM when fertile window and no unprotected intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = true,
+            unprotectedIntercourseInWindow = false
+        )
+
+        assertEquals(PregnancyRisk.MEDIUM, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns LOW when not in fertile window but unprotected intercourse occurred`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = false,
+            unprotectedIntercourseInWindow = true
+        )
+
+        assertEquals(PregnancyRisk.LOW, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns LOW when not in fertile window and no intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = false,
+            unprotectedIntercourseInWindow = false
+        )
+
+        assertEquals(PregnancyRisk.LOW, result)
+    }
+
+    @Test
+    fun `returns MEDIUM risk when intercourse occurred but all were protected`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = true
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when any unprotected intercourse occurred in fertile window`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 10),
+                protected = true
+            ),
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+    @Test
+    fun `returns LOW risk when unprotected intercourse occurred outside fertile window`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 20)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+    }
 }

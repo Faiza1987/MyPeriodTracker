@@ -1,4 +1,4 @@
-package org.tracker.models
+package org.tracker.domain
 
 data class UserProfile(
     val averageCycleLength: Int = 28,

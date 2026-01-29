@@ -1,11 +1,12 @@
-package service
+package org.tracker.service
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.tracker.model.IntercourseEvent
-import org.tracker.models.CycleEntry
-import org.tracker.models.PregnancyRisk
-import org.tracker.models.UserProfile
+import org.tracker.domain.IntercourseEvent
+import org.tracker.domain.CycleEntry
+import org.tracker.domain.PregnancyRisk
+import org.tracker.domain.UserProfile
 import org.tracker.service.CycleCalculator
 import java.time.LocalDate
 
@@ -493,4 +494,104 @@ class CycleCalculatorTest {
 
         assertEquals(PregnancyRisk.LOW, assessment.risk)
     }
+
+    @Test
+    fun `HIGH risk includes correct explanatory reasons`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 11)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+        assertTrue(assessment.reasons.contains("Today is within the fertile window"))
+        assertTrue(assessment.reasons.contains("Unprotected intercourse occurred during the fertile window"))
+    }
+
+    @Test
+    fun `MEDIUM risk includes explanation when no unprotected intercourse occurred`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = emptyList()
+        )
+
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+        assertTrue(assessment.reasons.any { it.contains("within the fertile window") })
+    }
+
+    @Test
+    fun `LOW risk includes explanation when outside fertile window`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 18)
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = emptyList()
+        )
+
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+        assertTrue(assessment.reasons.any { it.contains("No unprotected intercourse") })
+    }
+
+    @Test
+    fun `generateCycleSummary returns MEDIUM risk when intercourse is protected`() {
+        val today = LocalDate.of(2025, 1, 12)
+
+        val cycle = CycleEntry(
+            periodStart = LocalDate.of(2025, 1, 1),
+            intercourseEvents = listOf(
+                IntercourseEvent(
+                    date = LocalDate.of(2025, 1, 11),
+                    protected = true
+                )
+            )
+        )
+
+        val user = UserProfile(
+            averageCycleLength = 28,
+            cycles = listOf(cycle)
+        )
+
+        val summary = cycleCalculator.generateCycleSummary(today, user)
+
+        assertEquals(PregnancyRisk.MEDIUM, summary.pregnancyRiskAssessment.risk)
+    }
+
+    @Test
+    fun `generateCycleSummary uses last cycle entry`() {
+        val today = LocalDate.of(2025, 2, 10)
+
+        val olderCycle = CycleEntry(
+            periodStart = LocalDate.of(2025, 1, 1)
+        )
+
+        val latestCycle = CycleEntry(
+            periodStart = LocalDate.of(2025, 2, 1)
+        )
+
+        val user = UserProfile(
+            averageCycleLength = 28,
+            cycles = listOf(olderCycle, latestCycle)
+        )
+
+        val summary = cycleCalculator.generateCycleSummary(today, user)
+
+        assertEquals(10, summary.cycleDay)
+    }
+
 }

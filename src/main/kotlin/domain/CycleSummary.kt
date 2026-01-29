@@ -1,4 +1,4 @@
-package org.tracker.model
+package org.tracker.domain
 
 import java.time.LocalDate
 

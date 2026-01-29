@@ -1,4 +1,4 @@
-package org.tracker.model
+package org.tracker.domain
 
 data class PregnancyRiskKey(
     val inFertileWindow: Boolean,

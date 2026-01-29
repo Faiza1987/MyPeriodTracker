@@ -1,6 +1,6 @@
 package org.tracker.api.dto
 
-import org.tracker.models.UserProfile
+import org.tracker.domain.UserProfile
 import java.time.LocalDate
 
 data class CycleSummaryRequest(

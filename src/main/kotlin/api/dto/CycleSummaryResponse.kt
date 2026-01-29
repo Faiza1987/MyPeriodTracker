@@ -1,6 +1,6 @@
 package org.tracker.api.dto
 
-import org.tracker.model.CycleSummary
+import org.tracker.domain.CycleSummary
 
 data class CycleSummaryResponse(
     val cycleDay: Int,

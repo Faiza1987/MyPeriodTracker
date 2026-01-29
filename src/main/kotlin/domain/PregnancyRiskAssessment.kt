@@ -1,6 +1,4 @@
-package org.tracker.model
-
-import org.tracker.models.PregnancyRisk
+package org.tracker.domain
 
 data class PregnancyRiskAssessment(
     val risk: PregnancyRisk,

@@ -1,13 +1,12 @@
 package org.tracker.service
 
-
 import org.springframework.stereotype.Service
-import org.tracker.model.CycleSummary
-import org.tracker.model.IntercourseEvent
-import org.tracker.model.PregnancyRiskAssessment
-import org.tracker.model.PregnancyRiskKey
-import org.tracker.models.PregnancyRisk
-import org.tracker.models.UserProfile
+import org.tracker.domain.CycleSummary
+import org.tracker.domain.IntercourseEvent
+import org.tracker.domain.PregnancyRisk
+import org.tracker.domain.PregnancyRiskAssessment
+import org.tracker.domain.PregnancyRiskKey
+import org.tracker.domain.UserProfile
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -147,6 +146,4 @@ class CycleCalculator{
                     !event.date.isAfter(end)
         }
     }
-
-
 }

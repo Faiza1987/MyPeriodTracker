@@ -1,0 +1,1359 @@
+package org.tracker.api.dto
+
+data class CycleSummaryRequest(
+    val today: LocalDate,
+    val user: UserProfile
+)
+
+package org.tracker.api.dto
+
+data class CycleSummaryResponse(
+    val cycleDay: Int,
+    val fertileWindowStart: String,
+    val fertileWindowEnd: String,
+    val pregnancyRisk: String,
+    val reasons: List<String>,
+) {
+
+    companion object {
+        fun from(summary: CycleSummary): CycleSummaryResponse =
+            CycleSummaryResponse(
+                cycleDay = summary.cycleDay,
+                fertileWindowStart = summary.fertileWindow.first.toString(),
+                fertileWindowEnd = summary.fertileWindow.second.toString(),
+                pregnancyRisk = summary.pregnancyRiskAssessment.risk.name,
+                reasons = summary.pregnancyRiskAssessment.reasons
+            )
+    }
+}
+
+package org.tracker.controller
+
+@RestController
+@RequestMapping("/api/cycle")
+class CycleController(
+    private val cycleCalculator: CycleCalculator
+) {
+
+    @PostMapping("/summary")
+    fun generateSummary(
+        @RequestBody request: CycleSummaryRequest
+    ): CycleSummaryResponse {
+
+        val summary = cycleCalculator.generateCycleSummary(
+            today = request.today,
+            user = request.user
+        )
+
+        return CycleSummaryResponse.from(summary)
+    }
+}
+
+package org.tracker.domain
+
+data class Cycle(
+    val startDate: LocalDate,
+)
+
+package org.tracker.domain
+
+data class CycleEntry(
+    val periodStart: LocalDate,
+    val periodDuration: Int = 7,
+    val intercourseEvents: List<IntercourseEvent> = emptyList()
+)
+
+package org.tracker.domain
+
+data class CycleHistory(
+    val cycles: List<Cycle>
+) {
+    fun cycleLengths(): List<Int> = cycles.sortedBy { it.startDate }.zipWithNext { a, b ->
+        ChronoUnit.DAYS.between(a.startDate, b.startDate).toInt()
+    }
+
+    fun averageCycleLength(): Int = cycleLengths().average().toInt()
+
+    fun shortestCycle(): Int = cycleLengths().min()
+
+    fun longestCycle(): Int = cycleLengths().max()
+
+    fun stats(): CycleStats {
+        val lengths = cycleLengths()
+        val average = lengths.average()
+        val variance = lengths.map { length ->
+            (length - average) * (length - average)
+        }.average()
+
+        return CycleStats(
+            average = average.toInt(),
+            shortest = lengths.min(),
+            longest = lengths.max(),
+            standardDeviation = Math.sqrt(variance)
+        )
+    }
+
+    fun predictNextCycleStartDate(): CyclePrediction {
+        val averageLength = averageCycleLength()
+        val lastStartDate = cycles.maxBy { it.startDate }.startDate
+
+        return CyclePrediction(
+            predictedStartDate = lastStartDate.plusDays(averageLength.toLong()),
+            explanation = explainPrediction()
+        )
+    }
+
+    fun canPredict(): Boolean {
+        return cycles.size >= 2
+    }
+
+    fun isPredictionReliable(): Boolean {
+        if (!canPredict()) return false
+
+        val stats = stats()
+        return stats.standardDeviation <= 3.0
+    }
+
+    fun predictNextCycleStart(): LocalDate {
+        if (!canPredict()) {
+            throw IllegalStateException("Not enough cycle data to make a prediction")
+        }
+
+        return predictNextCycleStartDate().predictedStartDate
+    }
+
+
+    fun predictNextCycleWindow(): CyclePredictionWindow {
+        val stats = stats()
+        val lastStartDate = cycles.maxBy { it.startDate }.startDate
+
+        val avg = stats.average.toLong()
+        val deviation = stats.standardDeviation.toLong().coerceAtLeast(1)
+
+        val predicted = lastStartDate.plusDays(avg)
+
+        return CyclePredictionWindow(
+            earliest = predicted.minusDays(deviation),
+            latest = predicted.plusDays(deviation)
+        )
+    }
+
+    fun explainPrediction(): PredictionExplanation {
+        if (!canPredict()) {
+            return PredictionExplanation(
+                confidence = PredictionConfidence.LOW,
+                reasons = listOf("Not enough cycle history to make a reliable prediction")
+            )
+        }
+
+        val stats = stats()
+
+        return when {
+            stats.standardDeviation <= 2.0 ->
+                PredictionExplanation(
+                    confidence = PredictionConfidence.HIGH,
+                    reasons = listOf("Cycle length has been very consistent")
+                )
+
+            stats.standardDeviation <= 5.0 ->
+                PredictionExplanation(
+                    confidence = PredictionConfidence.MEDIUM,
+                    reasons = listOf("Some variation in cycle length detected")
+                )
+
+            else ->
+                PredictionExplanation(
+                    confidence = PredictionConfidence.LOW,
+                    reasons = listOf("Cycle length varies significantly between cycles")
+                )
+        }
+    }
+
+    fun predictNextCycle(): CyclePrediction {
+        if (!canPredict()) {
+            throw IllegalStateException("Not enough data to predict next cycle")
+        }
+
+        val stats = stats()
+        val predictedDate = predictNextCycleStartDate().predictedStartDate
+
+        val confidence =
+            when {
+                stats.standardDeviation <= 3.0 -> PredictionConfidence.HIGH
+                stats.standardDeviation <= 6.0 -> PredictionConfidence.MEDIUM
+                else -> PredictionConfidence.LOW
+            }
+
+        return CyclePrediction(
+            predictedStartDate = predictedDate,
+            explanation = PredictionExplanation(
+                confidence = confidence,
+                reasons = predictionReasons(stats)
+            )
+        )
+    }
+
+    private fun predictionReasons(stats: CycleStats): List<String> {
+        return buildList {
+            add("Average cycle length: ${stats.average} days")
+            add("Shortest cycle: ${stats.shortest} days")
+            add("Longest cycle: ${stats.longest} days")
+            add("Cycle variability (std dev): %.2f days".format(stats.standardDeviation))
+
+            if (stats.standardDeviation <= 3.0) {
+                add("Cycle history is consistent")
+            } else {
+                add("Cycle history shows high variability")
+            }
+        }
+    }
+}
+
+package org.tracker.domain
+
+data class CyclePrediction(
+    val predictedStartDate: LocalDate,
+    val explanation: PredictionExplanation
+)
+
+package org.tracker.domain
+
+data class CyclePredictionWindow(
+    val earliest: LocalDate,
+    val latest: LocalDate,
+)
+
+package org.tracker.domain
+
+data class CycleStats(
+    val average: Int,
+    val shortest: Int,
+    val longest: Int,
+    val standardDeviation: Double,
+)
+
+package org.tracker.domain
+
+data class CycleSummary(
+    val cycleDay: Int,
+    val fertileWindow: Pair<LocalDate, LocalDate>,
+    val pregnancyRiskAssessment: PregnancyRiskAssessment
+)
+
+package org.tracker.domain
+
+data class IntercourseEvent(
+    val date: LocalDate,
+    val protected: Boolean,
+)
+
+package org.tracker.domain
+
+data class PeriodLog(
+    val startDate: LocalDate,
+    val endDate: LocalDate
+)
+
+package org.tracker.domain
+
+enum class PredictionConfidence {
+    HIGH,
+    MEDIUM,
+    LOW,
+}
+
+package org.tracker.domain
+
+data class PredictionExplanation(
+    val confidence: PredictionConfidence,
+    val reasons: List<String>
+)
+
+package org.tracker.domain
+
+enum class PregnancyRisk {
+    HIGH,
+    MEDIUM,
+    LOW,
+}
+
+package org.tracker.domain
+
+data class PregnancyRiskAssessment(
+    val risk: PregnancyRisk,
+    val reasons: List<String>
+)
+
+package org.tracker.domain
+
+data class PregnancyRiskKey(
+    val inFertileWindow: Boolean,
+    val unprotectedIntercourseInWindow: Boolean
+)
+
+package org.tracker.domain
+
+data class PregnancyRiskRule(
+    val inFertileWindow: Boolean,
+    val intercourseInWindow: Boolean,
+    val risk: PregnancyRisk
+)
+
+package org.tracker.domain
+
+data class UserProfile(
+    val averageCycleLength: Int = 28,
+    val typicalPeriodLength: Int = 7,
+    val cycles: List<CycleEntry> = emptyList(),
+)
+
+package org.tracker.org.tracker.service
+
+@Service
+class CycleCalculator{
+    fun getCycleDay(
+        today: LocalDate,
+        lastPeriodStart: LocalDate
+    ) : Int {
+        return ChronoUnit.DAYS.between(lastPeriodStart, today).toInt() + 1
+    }
+
+    fun calculateFertileWindow(
+        lastPeriodStart: LocalDate,
+        averageCycleLength: Int
+    ): Pair<LocalDate, LocalDate> {
+        val ovulationDay = lastPeriodStart.plusDays(
+            (averageCycleLength - 14 - 1).toLong()
+        )
+
+        return ovulationDay.minusDays(5) to ovulationDay
+    }
+
+    fun calculatePregnancyRisk(
+        today: LocalDate,
+        fertileWindow: Pair<LocalDate, LocalDate>,
+        intercourseEvents: List<IntercourseEvent>,
+    ) : PregnancyRiskAssessment {
+
+        val inFertileWindow = isInFertileWindow(today, fertileWindow)
+        val unprotectedIntercourseInWindow = hadUnprotectedIntercourseInWindow(intercourseEvents, fertileWindow)
+
+        return assessPregnancyRisk(
+            inFertileWindow = inFertileWindow,
+            unprotectedIntercourseInWindow = unprotectedIntercourseInWindow
+        )
+    }
+
+    fun generateCycleSummary(
+        today: LocalDate,
+        user: UserProfile
+    ): CycleSummary {
+
+        val lastCycle = user.cycles.last()
+        val cycleDay = getCycleDay(today, lastCycle.periodStart)
+        val fertileWindow = calculateFertileWindow(
+            lastCycle.periodStart,
+            user.averageCycleLength
+        )
+
+        val pregnancyRiskAssessment = calculatePregnancyRisk(
+            today,
+            fertileWindow,
+            lastCycle.intercourseEvents
+        )
+
+        return CycleSummary(
+            cycleDay = cycleDay,
+            fertileWindow = fertileWindow,
+            pregnancyRiskAssessment = pregnancyRiskAssessment
+        )
+    }
+
+    private fun isInFertileWindow(
+        today: LocalDate,
+        fertileWindow: Pair<LocalDate, LocalDate>,
+    ) : Boolean {
+        val (start, end) = fertileWindow
+        return !today.isBefore(start) && !today.isAfter(end)
+    }
+
+
+    internal fun assessPregnancyRisk(
+        inFertileWindow: Boolean,
+        unprotectedIntercourseInWindow: Boolean,
+    ): PregnancyRiskAssessment {
+        val key = PregnancyRiskKey(
+            inFertileWindow = inFertileWindow,
+            unprotectedIntercourseInWindow = unprotectedIntercourseInWindow
+        )
+
+        return pregnancyRiskTable[key]
+            ?: error("No pregnancy risk rule defined for $key")
+    }
+
+    internal fun pregnancyRiskDecision(
+        inFertileWindow: Boolean,
+        unprotectedIntercourseInWindow: Boolean
+    ): PregnancyRisk {
+        return assessPregnancyRisk(
+            inFertileWindow,
+            unprotectedIntercourseInWindow
+        ).risk
+    }
+
+
+
+    private val pregnancyRiskTable: Map<PregnancyRiskKey, PregnancyRiskAssessment> =
+        mapOf(
+            PregnancyRiskKey(true, true) to PregnancyRiskAssessment(
+                risk = PregnancyRisk.HIGH,
+                reasons = listOf(
+                    "Today is within the fertile window",
+                    "Unprotected intercourse occurred during the fertile window"
+                )
+            ),
+            PregnancyRiskKey(true, false) to PregnancyRiskAssessment(
+                risk = PregnancyRisk.MEDIUM,
+                reasons = listOf(
+                    "Today is within the fertile window",
+                    "No unprotected intercourse occurred during the fertile window"
+                )
+            ),
+            PregnancyRiskKey(false, true) to PregnancyRiskAssessment(
+                risk = PregnancyRisk.LOW,
+                reasons = listOf(
+                    "Unprotected intercourse occurred outside the fertile window"
+                )
+            ),
+            PregnancyRiskKey(false, false) to PregnancyRiskAssessment(
+                risk = PregnancyRisk.LOW,
+                reasons = listOf(
+                    "No unprotected intercourse occurred during the fertile window"
+                )
+            )
+        )
+
+
+    private fun hadUnprotectedIntercourseInWindow(
+        events: List<IntercourseEvent>,
+        fertileWindow: Pair<LocalDate, LocalDate>,
+    ): Boolean {
+        val (start, end) = fertileWindow
+        return events.any { event ->
+            !event.protected &&
+                    !event.date.isBefore(start) &&
+                    !event.date.isAfter(end)
+        }
+    }
+}
+
+package org.tracker.domain
+
+class CycleHistoryTest {
+
+    @Test
+    fun `calculates average cycle length`() {
+        // Arrange & Act
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+        // Assert
+        assertEquals(28, history.averageCycleLength())
+    }
+
+    @Test
+    fun `calculates shortest cycle`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)), // 28 days
+                Cycle(LocalDate.of(2026, 2, 24))  // 26 days
+            )
+        )
+
+        assertEquals(26, history.shortestCycle())
+    }
+
+    @Test
+    fun `calculates longest cycle`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)), // 28 days
+                Cycle(LocalDate.of(2026, 2, 26))  // 28 days
+            )
+        )
+
+        assertEquals(28, history.longestCycle())
+    }
+
+    @Test
+    fun `predicts next cycle start date`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+
+        val prediction = history.predictNextCycleStartDate()
+
+        assertEquals(
+            LocalDate.of(2026, 3, 26),
+            prediction.predictedStartDate
+        )
+    }
+
+    @Test
+    fun `cannot predict with fewer than 2 cycles`() {
+        val history = CycleHistory(
+            listOf(Cycle(LocalDate.of(2026, 1, 1)))
+        )
+
+        assertEquals(false, history.canPredict())
+    }
+
+    @Test
+    fun `prediction is reliable for consistent cycles`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+
+        assertEquals(true, history.isPredictionReliable())
+    }
+
+    @Test
+    fun `predicts a confidence window for next cycle`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+
+        val window = history.predictNextCycleWindow()
+
+        assertEquals(
+            LocalDate.of(2026, 3, 25),
+            window.earliest
+        )
+        assertEquals(
+            LocalDate.of(2026, 3, 27),
+            window.latest
+        )
+    }
+    @Test
+    fun `calculates average cycle length with variation`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)), // 28
+                Cycle(LocalDate.of(2026, 2, 24))  // 26
+            )
+        )
+
+        assertEquals(27, history.averageCycleLength())
+    }
+
+    @Test
+    fun `prediction is not reliable for irregular cycles`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),  // —
+                Cycle(LocalDate.of(2026, 1, 21)), // 20
+                Cycle(LocalDate.of(2026, 2, 25))  // 35
+            )
+        )
+
+        assertEquals(false, history.isPredictionReliable())
+    }
+    @Test
+    fun `prediction window is wider for irregular cycles`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 21)), // 20
+                Cycle(LocalDate.of(2026, 2, 25))  // 35
+            )
+        )
+
+        val window = history.predictNextCycleWindow()
+
+        assert(window.latest.isAfter(window.earliest))
+    }
+
+    @Test
+    fun `predicts next cycle with high confidence for consistent cycles`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+
+        val prediction = history.predictNextCycle()
+
+        assertEquals(
+            LocalDate.of(2026, 3, 26),
+            prediction.predictedStartDate
+        )
+        assertEquals(
+            PredictionConfidence.HIGH,
+            prediction.explanation.confidence
+        )
+    }
+
+    @Test
+    fun `predictNextCycleStart returns predicted start date`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29))
+            )
+        )
+
+        val predicted = history.predictNextCycleStart()
+
+        assertEquals(LocalDate.of(2026, 2, 26), predicted)
+    }
+
+    @Test
+    fun `predictNextCycle returns high confidence for consistent cycles with different length`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 30)), // 29
+                Cycle(LocalDate.of(2026, 2, 28))  // 29
+            )
+        )
+
+        val prediction = history.predictNextCycle()
+
+        assertEquals(PredictionConfidence.HIGH, prediction.explanation.confidence)
+    }
+
+    @Test
+    fun `predictNextCycle returns low confidence for highly irregular cycles`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 20)), // 19
+                Cycle(LocalDate.of(2026, 2, 25))  // 36
+            )
+        )
+
+        val prediction = history.predictNextCycle()
+
+        assertEquals(PredictionConfidence.LOW, prediction.explanation.confidence)
+    }
+
+    @Test
+    fun `prediction explanation includes descriptive reasons`() {
+        val history = CycleHistory(
+            listOf(
+                Cycle(LocalDate.of(2026, 1, 1)),
+                Cycle(LocalDate.of(2026, 1, 29)),
+                Cycle(LocalDate.of(2026, 2, 26))
+            )
+        )
+
+        val explanation = history.predictNextCycle().explanation
+
+        assertTrue(explanation.reasons.any { it.contains("Average cycle length") })
+        assertTrue(explanation.reasons.any { it.contains("Shortest cycle") })
+        assertTrue(explanation.reasons.any { it.contains("Longest cycle") })
+    }
+}
+
+package org.tracker.service
+
+class CycleCalculatorTest {
+    private val cycleCalculator = CycleCalculator()
+
+    @Test
+    fun `returns day 1 when today is the first day of period`() {
+        // Arrange
+        val periodStart = LocalDate.of(2025, 1, 1)
+        val today = LocalDate.of(2025, 1, 1)
+
+        // Act
+        val result = cycleCalculator.getCycleDay(today, periodStart)
+
+        // Assert
+        assertEquals(1, result)
+
+    }
+
+    @Test
+    fun `returns day 2 for the day after period starts`() {
+        // Arrange
+        val periodStart = LocalDate.of(2025, 1, 1)
+        val today = LocalDate.of(2025, 1, 2)
+
+        // Act
+        val result = cycleCalculator.getCycleDay(today, periodStart)
+
+        // Assert
+        assertEquals(2, result)
+    }
+
+
+    @Test
+    fun `returns correct cycle day after multiple days`() {
+        // Arrange
+        val periodStart = LocalDate.of(2025, 1, 1)
+        val today = LocalDate.of(2025, 1, 10)
+
+        // Act
+        val result = cycleCalculator.getCycleDay(today, periodStart)
+
+        // Assert
+        assertEquals(10, result)
+    }
+
+
+    @Test
+    fun `handles larger gaps correctly`() {
+        // Arrange
+        val periodStart = LocalDate.of(2025, 1, 1)
+        val today = LocalDate.of(2025, 1, 28)
+
+        // Act
+        val result = cycleCalculator.getCycleDay(today, periodStart)
+
+        // Assert
+        assertEquals(28, result)
+    }
+
+    @Test
+    fun `fertile window is calculated correctly for 28 day cycle`() {
+        // Arrange
+        val lastPeriodStart = LocalDate.of(2025, 1, 1)
+        val averageCycleLength = 28
+
+        // Act
+        val (fertileStart, fertileEnd) =
+            cycleCalculator.calculateFertileWindow(lastPeriodStart, averageCycleLength)
+
+        // Assert
+        // Ovulation = Day 14 → Jan 14
+        // Fertile window = Jan 9 – Jan 14
+        assertEquals(LocalDate.of(2025, 1, 9), fertileStart)
+        assertEquals(LocalDate.of(2025, 1, 14), fertileEnd)
+    }
+
+    @Test
+    fun `fertile window shifts correctly for longer cycle`() {
+        // Arrange
+        val lastPeriodStart = LocalDate.of(2025, 1, 1)
+        val averageCycleLength = 32
+
+        // Act
+        val (fertileStart, fertileEnd) =
+            cycleCalculator.calculateFertileWindow(lastPeriodStart, averageCycleLength)
+
+        // Assert
+        // Ovulation = Day 18 → Jan 18
+        // Fertile window = Jan 13 – Jan 18
+        assertEquals(LocalDate.of(2025, 1, 13), fertileStart)
+        assertEquals(LocalDate.of(2025, 1, 18), fertileEnd)
+    }
+
+    @Test
+    fun `fertile window shifts correctly for shorter cycle`() {
+        // Arrange
+        val lastPeriodStart = LocalDate.of(2025, 1, 1)
+        val averageCycleLength = 24
+
+        // Act
+        val (fertileStart, fertileEnd) =
+            cycleCalculator.calculateFertileWindow(lastPeriodStart, averageCycleLength)
+
+        // Assert
+        // Ovulation = Day 10 → Jan 10
+        // Fertile window = Jan 5 – Jan 10
+        assertEquals(LocalDate.of(2025, 1, 5), fertileStart)
+        assertEquals(LocalDate.of(2025, 1, 10), fertileEnd)
+    }
+
+    @Test
+    fun `returns HIGH risk when today is in fertile window and intercourse occurred`() {
+        // Arrange
+        val fertileStart = LocalDate.of(2025, 1, 9)
+        val fertileEnd = LocalDate.of(2025, 1, 14)
+        val fertileWindow = fertileStart to fertileEnd
+
+        val today = LocalDate.of(2025, 1, 12)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `returns MEDIUM risk when today is in fertile window but no intercourse occurred`() {
+        // Arrange
+        val fertileStart = LocalDate.of(2025, 1, 9)
+        val fertileEnd = LocalDate.of(2025, 1, 14)
+        val fertileWindow = fertileStart to fertileEnd
+
+        val today = LocalDate.of(2025, 1, 11)
+        val intercourseDays = emptyList<IntercourseEvent>()
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseDays
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns LOW risk when today is outside fertile window`() {
+        // Arrange
+        val fertileStart = LocalDate.of(2025, 1, 9)
+        val fertileEnd = LocalDate.of(2025, 1, 14)
+        val fertileWindow = fertileStart to fertileEnd
+
+        val today = LocalDate.of(2025, 1, 20)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+    }
+
+    @Test
+    fun `generateCycleSummary returns correct values`() {
+        // Arrange
+        val today = LocalDate.of(2025, 1, 12)
+
+        val cycle = CycleEntry(
+            periodStart = LocalDate.of(2025, 1, 1),
+            intercourseEvents = listOf(
+                IntercourseEvent(
+                    date = LocalDate.of(2025, 1, 11),
+                    protected = false
+                )
+            )
+        )
+
+        val user = UserProfile(
+            averageCycleLength = 28,
+            cycles = listOf(cycle)
+        )
+
+        // Act
+        val summary = cycleCalculator.generateCycleSummary(today, user)
+
+        // Assert
+        assertEquals(12, summary.cycleDay)
+        assertEquals(
+            LocalDate.of(2025, 1, 9),
+            summary.fertileWindow.first
+        )
+        assertEquals(
+            LocalDate.of(2025, 1, 14),
+            summary.fertileWindow.second
+        )
+        assertEquals(PregnancyRisk.HIGH, summary.pregnancyRiskAssessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when today is first day of fertile window and intercourse occurred that day`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 9)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 9),
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when today is last day of fertile window and intercourse occurred earlier in window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 14)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `returns MEDIUM risk when today is on fertile boundary but no intercourse occurred`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 14)
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = emptyList()
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns LOW risk when intercourse occurred only outside fertile window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 5), // outside window
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns LOW risk when today is outside fertile window even if intercourse occurred during fertile window`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 16)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when multiple intercourse days include at least one fertile day`() {
+        // Arrange
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 11)
+        val intercourseEvents = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        // Act
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = intercourseEvents
+        )
+
+        // Assert
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+
+    @Test
+    fun `pregnancy risk decision table`() {
+        val calculator = CycleCalculator()
+
+        assertEquals(
+            PregnancyRisk.HIGH,
+            cycleCalculator.pregnancyRiskDecision(true, true)
+        )
+
+        assertEquals(
+            PregnancyRisk.MEDIUM,
+            cycleCalculator.pregnancyRiskDecision(true, false)
+        )
+
+        assertEquals(
+            PregnancyRisk.LOW,
+            cycleCalculator.pregnancyRiskDecision(false, true)
+        )
+
+        assertEquals(
+            PregnancyRisk.LOW,
+            cycleCalculator.pregnancyRiskDecision(false, false)
+        )
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns HIGH when fertile window and unprotected intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = true,
+            unprotectedIntercourseInWindow = true
+        )
+
+        assertEquals(PregnancyRisk.HIGH, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns MEDIUM when fertile window and no unprotected intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = true,
+            unprotectedIntercourseInWindow = false
+        )
+
+        assertEquals(PregnancyRisk.MEDIUM, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns LOW when not in fertile window but unprotected intercourse occurred`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = false,
+            unprotectedIntercourseInWindow = true
+        )
+
+        assertEquals(PregnancyRisk.LOW, result)
+    }
+
+    @Test
+    fun `pregnancyRiskDecision returns LOW when not in fertile window and no intercourse`() {
+        val result = cycleCalculator.pregnancyRiskDecision(
+            inFertileWindow = false,
+            unprotectedIntercourseInWindow = false
+        )
+
+        assertEquals(PregnancyRisk.LOW, result)
+    }
+
+    @Test
+    fun `returns MEDIUM risk when intercourse occurred but all were protected`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = true
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+    }
+
+    @Test
+    fun `returns HIGH risk when any unprotected intercourse occurred in fertile window`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 12)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 10),
+                protected = true
+            ),
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.HIGH, assessment.risk)
+    }
+    @Test
+    fun `returns LOW risk when unprotected intercourse occurred outside fertile window`() {
+        val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+        val today = LocalDate.of(2025, 1, 20)
+
+        val events = listOf(
+            IntercourseEvent(
+                date = LocalDate.of(2025, 1, 11),
+                protected = false
+            )
+        )
+
+        val assessment = cycleCalculator.calculatePregnancyRisk(
+            today = today,
+            fertileWindow = fertileWindow,
+            intercourseEvents = events
+        )
+
+        assertEquals(PregnancyRisk.LOW, assessment.risk)
+    }
+
+    @Test
+        fun `HIGH risk includes correct explanatory reasons`() {
+            val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+            val today = LocalDate.of(2025, 1, 11)
+
+            val events = listOf(
+                IntercourseEvent(
+                    date = LocalDate.of(2025, 1, 11),
+                    protected = false
+                )
+            )
+
+            val assessment = cycleCalculator.calculatePregnancyRisk(
+                today = today,
+                fertileWindow = fertileWindow,
+                intercourseEvents = events
+            )
+
+            assertEquals(PregnancyRisk.HIGH, assessment.risk)
+            assertTrue(assessment.reasons.contains("Today is within the fertile window"))
+            assertTrue(assessment.reasons.contains("Unprotected intercourse occurred during the fertile window"))
+        }
+
+        @Test
+        fun `MEDIUM risk includes explanation when no unprotected intercourse occurred`() {
+            val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+            val today = LocalDate.of(2025, 1, 12)
+
+            val assessment = cycleCalculator.calculatePregnancyRisk(
+                today = today,
+                fertileWindow = fertileWindow,
+                intercourseEvents = emptyList()
+            )
+
+            assertEquals(PregnancyRisk.MEDIUM, assessment.risk)
+            assertTrue(assessment.reasons.any { it.contains("within the fertile window") })
+        }
+
+        @Test
+        fun `LOW risk includes explanation when outside fertile window`() {
+            val fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14)
+            val today = LocalDate.of(2025, 1, 18)
+
+            val assessment = cycleCalculator.calculatePregnancyRisk(
+                today = today,
+                fertileWindow = fertileWindow,
+                intercourseEvents = emptyList()
+            )
+
+            assertEquals(PregnancyRisk.LOW, assessment.risk)
+            assertTrue(assessment.reasons.any { it.contains("No unprotected intercourse") })
+        }
+
+        @Test
+        fun `generateCycleSummary returns MEDIUM risk when intercourse is protected`() {
+            val today = LocalDate.of(2025, 1, 12)
+
+            val cycle = CycleEntry(
+                periodStart = LocalDate.of(2025, 1, 1),
+                intercourseEvents = listOf(
+                    IntercourseEvent(
+                        date = LocalDate.of(2025, 1, 11),
+                        protected = true
+                    )
+                )
+            )
+
+            val user = UserProfile(
+                averageCycleLength = 28,
+                cycles = listOf(cycle)
+            )
+
+            val summary = cycleCalculator.generateCycleSummary(today, user)
+
+            assertEquals(PregnancyRisk.MEDIUM, summary.pregnancyRiskAssessment.risk)
+        }
+
+        @Test
+        fun `generateCycleSummary uses last cycle entry`() {
+            val today = LocalDate.of(2025, 2, 10)
+
+            val olderCycle = CycleEntry(
+                periodStart = LocalDate.of(2025, 1, 1)
+            )
+
+            val latestCycle = CycleEntry(
+                periodStart = LocalDate.of(2025, 2, 1)
+            )
+
+            val user = UserProfile(
+                averageCycleLength = 28,
+                cycles = listOf(olderCycle, latestCycle)
+            )
+
+            val summary = cycleCalculator.generateCycleSummary(today, user)
+
+            assertEquals(10, summary.cycleDay)
+        }
+
+    package org.tracker.controller
+
+    @WebMvcTest(CycleController::class)
+    class CycleControllerTest {
+        @Autowired
+        lateinit var mockMvc: MockMvc
+
+        @MockBean
+        lateinit var cycleCalculator: CycleCalculator
+
+        @Autowired
+        lateinit var objectMapper: ObjectMapper
+
+        @Test
+        fun postApiCycleSummaryReturnsCycleSummaryResponse() {
+            // Arrange
+            val today = LocalDate.of(2025, 1, 12)
+
+            val request = TestFixtures.cycleSummaryRequest(
+                today = today
+            )
+
+            val domainSummary = TestFixtures.cycleSummary()
+
+            `when`(
+                cycleCalculator.generateCycleSummary(
+                    today = today,
+                    user = request.user
+                )
+            ).thenReturn(domainSummary)
+
+            // Act & Assert
+            mockMvc.post("/api/cycle/summary") {
+                contentType = MediaType.APPLICATION_JSON
+                content = objectMapper.writeValueAsString(request)
+            }
+                .andExpect {
+                    status { isOk() }
+                    jsonPath("$.cycleDay") { value(12) }
+                    jsonPath("$.fertileWindowStart") { value("2025-01-09") }
+                    jsonPath("$.fertileWindowEnd") { value("2025-01-14") }
+                    jsonPath("$.pregnancyRisk") { value("HIGH") }
+                    jsonPath("$.reasons") { isArray() }
+                }
+
+            verify(cycleCalculator).generateCycleSummary(
+                today = today,
+                user = request.user
+            )
+
+        }
+    }
+
+    package org.tracker
+
+    object TestFixtures {
+
+        fun cycleSummaryRequest(
+            today: LocalDate = LocalDate.of(2025, 1, 12)
+        ): CycleSummaryRequest =
+            CycleSummaryRequest(
+                today = today,
+                user = userProfile()
+            )
+
+        fun userProfile(): UserProfile =
+            UserProfile(
+                averageCycleLength = 28,
+                cycles = listOf(
+                    CycleEntry(
+                        periodStart = LocalDate.of(2025, 1, 1),
+                        intercourseEvents = listOf(
+                            IntercourseEvent(
+                                date = LocalDate.of(2025, 1, 11),
+                                protected = false
+                            )
+                        )
+                    )
+                )
+            )
+
+        fun cycleSummary(): CycleSummary =
+            CycleSummary(
+                cycleDay = 12,
+                fertileWindow = LocalDate.of(2025, 1, 9) to LocalDate.of(2025, 1, 14),
+                pregnancyRiskAssessment = PregnancyRiskAssessment(
+                    risk = PregnancyRisk.HIGH,
+                    reasons = listOf(
+                        "Today is within the fertile window",
+                        "Unprotected intercourse occurred during the fertile window"
+                    )
+                )
+            )
+    }
+}

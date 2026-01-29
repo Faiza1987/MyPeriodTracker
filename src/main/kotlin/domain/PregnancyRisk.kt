@@ -1,4 +1,4 @@
-package org.tracker.models
+package org.tracker.domain
 
 enum class PregnancyRisk {
     HIGH,

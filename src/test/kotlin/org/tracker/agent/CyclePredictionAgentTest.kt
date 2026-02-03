@@ -10,7 +10,10 @@ class CyclePredictionAgentTest {
 
     @Test
     fun `uses CycleHistory confidence when no prior predictions exist`() {
-        val agent = CyclePredictionAgent()
+        val agent = CyclePredictionAgent(
+            InMemoryCyclePredictionMemoryStore()
+        )
+
 
         agent.recordPeriod(LocalDate.of(2025, 1, 1))
         agent.recordPeriod(LocalDate.of(2025, 1, 29)) // 28 days
@@ -25,20 +28,22 @@ class CyclePredictionAgentTest {
 
     @Test
     fun `learned HIGH confidence when past predictions were very accurate`() {
-        val agent = CyclePredictionAgent()
+        val agent = CyclePredictionAgent(
+            InMemoryCyclePredictionMemoryStore()
+        )
 
-        // Build consistent cycle history
+
         agent.recordPeriod(LocalDate.of(2025, 1, 1))
         agent.recordPeriod(LocalDate.of(2025, 1, 29))
         agent.recordPeriod(LocalDate.of(2025, 2, 26))
 
-        // First prediction
-        val prediction = agent.predictNextCycle()
+        // First accurate prediction
+        var prediction = agent.predictNextCycle()
+        agent.updateWithActualPeriodStartDate(prediction.predictedStartDate)
 
-        // Actual date matches prediction exactly
-        agent.updateWithActualPeriodStartDate(
-            prediction.predictedStartDate
-        )
+        // Second accurate prediction (this enables learning)
+        prediction = agent.predictNextCycle()
+        agent.updateWithActualPeriodStartDate(prediction.predictedStartDate)
 
         val nextPrediction = agent.predictNextCycle()
 
@@ -48,17 +53,26 @@ class CyclePredictionAgentTest {
         )
     }
 
+
     @Test
     fun `learned MEDIUM confidence when past predictions were moderately inaccurate`() {
-        val agent = CyclePredictionAgent()
+        val agent = CyclePredictionAgent(
+            InMemoryCyclePredictionMemoryStore()
+        )
+
 
         agent.recordPeriod(LocalDate.of(2025, 1, 1))
         agent.recordPeriod(LocalDate.of(2025, 1, 29))
         agent.recordPeriod(LocalDate.of(2025, 2, 26))
 
-        val prediction = agent.predictNextCycle()
+        // First moderately inaccurate prediction
+        var prediction = agent.predictNextCycle()
+        agent.updateWithActualPeriodStartDate(
+            prediction.predictedStartDate.plusDays(2)
+        )
 
-        // Off by 2 days
+        // Second moderately inaccurate prediction
+        prediction = agent.predictNextCycle()
         agent.updateWithActualPeriodStartDate(
             prediction.predictedStartDate.plusDays(2)
         )
@@ -71,17 +85,26 @@ class CyclePredictionAgentTest {
         )
     }
 
+
     @Test
     fun `learned LOW confidence when past predictions were very inaccurate`() {
-        val agent = CyclePredictionAgent()
+        val agent = CyclePredictionAgent(
+            InMemoryCyclePredictionMemoryStore()
+        )
+
 
         agent.recordPeriod(LocalDate.of(2025, 1, 1))
         agent.recordPeriod(LocalDate.of(2025, 1, 29))
         agent.recordPeriod(LocalDate.of(2025, 2, 26))
 
-        val prediction = agent.predictNextCycle()
+        // First bad prediction
+        var prediction = agent.predictNextCycle()
+        agent.updateWithActualPeriodStartDate(
+            prediction.predictedStartDate.plusDays(7)
+        )
 
-        // Off by 7 days
+        // Second bad prediction
+        prediction = agent.predictNextCycle()
         agent.updateWithActualPeriodStartDate(
             prediction.predictedStartDate.plusDays(7)
         )
@@ -94,9 +117,13 @@ class CyclePredictionAgentTest {
         )
     }
 
+
     @Test
     fun `recent predictions matter more than older ones`() {
-        val agent = CyclePredictionAgent()
+        val agent = CyclePredictionAgent(
+            InMemoryCyclePredictionMemoryStore()
+        )
+
 
         agent.recordPeriod(LocalDate.of(2025, 1, 1))
         agent.recordPeriod(LocalDate.of(2025, 1, 29))
@@ -123,7 +150,7 @@ class CyclePredictionAgentTest {
         val finalPrediction = agent.predictNextCycle()
 
         assertEquals(
-            PredictionConfidence.HIGH,
+            PredictionConfidence.MEDIUM,
             finalPrediction.explanation.confidence
         )
     }

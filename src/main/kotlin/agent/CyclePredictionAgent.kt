@@ -8,40 +8,51 @@ import org.tracker.domain.PredictionExplanation
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-class CyclePredictionAgent {
-    private val cycles = mutableListOf<Cycle>()
-    private val predictionResult = mutableListOf<CyclePredictionResult>()
-    private var lastPrediction: CyclePrediction? = null
+class CyclePredictionAgent(
+    private val memoryStore: CyclePredictionMemoryStore
+) {
 
+    private fun memory(): CyclePredictionMemory =
+        memoryStore.load()
 
-    // Records the start of a new menstrual cycle
+    private fun save(memory: CyclePredictionMemory) =
+        memoryStore.save(memory)
+
     fun recordPeriod(startDate: LocalDate) {
-        cycles.add(Cycle(startDate))
+        val updated = memory().recordCycle(startDate)
+        save(updated)
     }
 
-    // Predicts the next cycle using current history
     fun predictNextCycle(): CyclePrediction {
+        val memory = memory()
+
         val history = CycleHistory(
-            cycles = cycles.toList()
+            cycles = memory.cycles
         )
+
         val basePrediction = history.predictNextCycle()
-        val learnedConfidence = learnedConfidence()
-        val finalConfidence = learnedConfidence ?: basePrediction.explanation.confidence
+        val learnedConfidence = learnedConfidence(memory)
+        val finalConfidence =
+            learnedConfidence ?: basePrediction.explanation.confidence
+
         val reasons = buildList {
             addAll(basePrediction.explanation.reasons)
 
-            if(learnedConfidence != null) {
+            if (learnedConfidence != null) {
                 add(
-                    when(learnedConfidence) {
-                        PredictionConfidence.HIGH -> "Past predictions have been very accurate"
-                        PredictionConfidence.MEDIUM -> "Past predictions have been moderately accurate"
-                        PredictionConfidence.LOW -> "Past predictions have been inaccurate"
-
+                    when (learnedConfidence) {
+                        PredictionConfidence.HIGH ->
+                            "Past predictions have been very accurate"
+                        PredictionConfidence.MEDIUM ->
+                            "Past predictions have been moderately accurate"
+                        PredictionConfidence.LOW ->
+                            "Past predictions have been inaccurate"
                     }
                 )
             }
         }
-        return CyclePrediction(
+
+        val finalPrediction = CyclePrediction(
             predictedStartDate = basePrediction.predictedStartDate,
             explanation = PredictionExplanation(
                 confidence = finalConfidence,
@@ -49,38 +60,42 @@ class CyclePredictionAgent {
             )
         )
 
+        save(memory.withLastPrediction(finalPrediction))
+        return finalPrediction
     }
 
-    // Used later for learning from prediction accuracy
     fun updateWithActualPeriodStartDate(actualStartDate: LocalDate) {
-        val prediction = lastPrediction ?: return
+        val memory = memory()
+        val prediction = memory.lastPrediction ?: return
 
         val difference = ChronoUnit.DAYS.between(
             prediction.predictedStartDate,
             actualStartDate
         )
 
-        predictionResult.add(
-            CyclePredictionResult(
-                predictedDate = prediction.predictedStartDate,
-                actualDate = actualStartDate,
-                differenceInDays = difference.toInt()
-            )
+        val result = CyclePredictionResult(
+            predictedDate = prediction.predictedStartDate,
+            actualDate = actualStartDate,
+            differenceInDays = difference.toInt()
         )
 
-        // also record the actual period
-        recordPeriod(actualStartDate)
+        save(
+            memory
+                .recordPredictionResult(result)
+                .recordCycle(actualStartDate)
+        )
     }
 
-    fun predictionResults(): List<CyclePredictionResult> {
-        return predictionResult.toList()
-    }
+    fun predictionResults(): List<CyclePredictionResult> =
+        memory().predictionResults
 
-    private fun learnedConfidence(): PredictionConfidence? {
-        if (predictionResult.isEmpty()) return null
+    private fun learnedConfidence(
+        memory: CyclePredictionMemory
+    ): PredictionConfidence? {
+        if (memory.predictionResults.size < 2) return null
 
-        val averageError = predictionResult
-            .takeLast(3) // recent history matters most
+        val averageError = memory.predictionResults
+            .takeLast(3)
             .map { kotlin.math.abs(it.differenceInDays) }
             .average()
 
@@ -90,5 +105,4 @@ class CyclePredictionAgent {
             else -> PredictionConfidence.LOW
         }
     }
-
 }

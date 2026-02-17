@@ -1,14 +1,17 @@
 package org.tracker.agent
 
+import java.util.UUID
+
 class InMemoryCyclePredictionMemoryStore(
     initialMemory: CyclePredictionMemory = CyclePredictionMemory()
 ) : CyclePredictionMemoryStore {
 
-    private var memory: CyclePredictionMemory = initialMemory
+    private val memoryByUser = mutableMapOf<UUID, CyclePredictionMemory>()
 
-    override fun load(): CyclePredictionMemory = memory
+    override fun load(userId: UUID): CyclePredictionMemory =
+        memoryByUser[userId] ?: CyclePredictionMemory()
 
-    override fun save(memory: CyclePredictionMemory) {
-        this.memory = memory
+    override fun save(userId: UUID, memory: CyclePredictionMemory) {
+        memoryByUser[userId] = memory
     }
 }

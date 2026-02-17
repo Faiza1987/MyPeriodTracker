@@ -5,13 +5,22 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import org.tracker.domain.PredictionConfidence
 import java.time.LocalDate
+import java.util.UUID
 
 class CyclePredictionAgentTest {
+
+    companion object {
+        private val TEST_USER_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000001")
+
+    }
+
 
     @Test
     fun `uses CycleHistory confidence when no prior predictions exist`() {
         val agent = CyclePredictionAgent(
-            InMemoryCyclePredictionMemoryStore()
+            userId = TEST_USER_ID,
+            memoryStore = InMemoryCyclePredictionMemoryStore()
         )
 
 
@@ -29,7 +38,8 @@ class CyclePredictionAgentTest {
     @Test
     fun `learned HIGH confidence when past predictions were very accurate`() {
         val agent = CyclePredictionAgent(
-            InMemoryCyclePredictionMemoryStore()
+            userId = TEST_USER_ID,
+            memoryStore = InMemoryCyclePredictionMemoryStore()
         )
 
 
@@ -57,7 +67,8 @@ class CyclePredictionAgentTest {
     @Test
     fun `learned MEDIUM confidence when past predictions were moderately inaccurate`() {
         val agent = CyclePredictionAgent(
-            InMemoryCyclePredictionMemoryStore()
+            userId = TEST_USER_ID,
+            memoryStore = InMemoryCyclePredictionMemoryStore()
         )
 
 
@@ -89,7 +100,8 @@ class CyclePredictionAgentTest {
     @Test
     fun `learned LOW confidence when past predictions were very inaccurate`() {
         val agent = CyclePredictionAgent(
-            InMemoryCyclePredictionMemoryStore()
+            userId = TEST_USER_ID,
+            memoryStore = InMemoryCyclePredictionMemoryStore()
         )
 
 
@@ -121,7 +133,8 @@ class CyclePredictionAgentTest {
     @Test
     fun `recent predictions matter more than older ones`() {
         val agent = CyclePredictionAgent(
-            InMemoryCyclePredictionMemoryStore()
+            userId = TEST_USER_ID,
+            memoryStore = InMemoryCyclePredictionMemoryStore()
         )
 
 

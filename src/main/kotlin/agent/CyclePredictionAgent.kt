@@ -1,22 +1,23 @@
 package org.tracker.agent
 
-import org.tracker.domain.Cycle
 import org.tracker.domain.CycleHistory
 import org.tracker.domain.CyclePrediction
 import org.tracker.domain.PredictionConfidence
 import org.tracker.domain.PredictionExplanation
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.UUID
 
 class CyclePredictionAgent(
+    private val userId: UUID,
     private val memoryStore: CyclePredictionMemoryStore
 ) {
 
     private fun memory(): CyclePredictionMemory =
-        memoryStore.load()
+        memoryStore.load(userId)
 
     private fun save(memory: CyclePredictionMemory) =
-        memoryStore.save(memory)
+        memoryStore.save(userId, memory)
 
     fun recordPeriod(startDate: LocalDate) {
         val updated = memory().recordCycle(startDate)

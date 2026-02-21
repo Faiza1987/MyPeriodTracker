@@ -3,6 +3,8 @@ package org.tracker.config
 import org.springframework.ai.chat.client.ChatClient
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.jdbc.core.JdbcTemplate
+import org.tracker.agent.memory.PostgresCyclePredictionMemoryStore
 
 @Configuration
 class AiConfig {
@@ -18,5 +20,10 @@ class AiConfig {
                 Always be compassionate, scientific, and clear.
             """.trimIndent())
             .build()
+    }
+
+    @Bean
+    fun cyclePredictionMemoryStore(jdbcTemplate: JdbcTemplate): PostgresCyclePredictionMemoryStore {
+        return PostgresCyclePredictionMemoryStore(jdbcTemplate)
     }
 }

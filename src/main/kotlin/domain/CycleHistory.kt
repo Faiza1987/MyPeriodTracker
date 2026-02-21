@@ -42,26 +42,22 @@ data class CycleHistory(
         )
     }
 
-
     fun canPredict(): Boolean {
         return cycles.size >= 2
     }
 
     fun isPredictionReliable(): Boolean {
         if (!canPredict()) return false
-
         val stats = stats()
-        return stats.standardDeviation <= 3.0
+        return stats.standardDeviation <= 3.0 && !hasRecentDisruptors()
     }
 
     fun predictNextCycleStart(): LocalDate {
         if (!canPredict()) {
             throw IllegalStateException("Not enough cycle data to make a prediction")
         }
-
         return predictNextCycleStartDate().predictedStartDate
     }
-
 
     fun predictNextCycleWindow(): CyclePredictionWindow {
         val stats = stats()
@@ -70,11 +66,13 @@ data class CycleHistory(
         val avg = stats.average.toLong()
         val deviation = stats.standardDeviation.toLong().coerceAtLeast(1)
 
+        // Widen the window if recent cycles had disruptors
+        val extra = if (hasRecentDisruptors()) 2L else 0L
         val predicted = lastStartDate.plusDays(avg)
 
         return CyclePredictionWindow(
-            earliest = predicted.minusDays(deviation),
-            latest = predicted.plusDays(deviation)
+            earliest = predicted.minusDays(deviation + extra),
+            latest = predicted.plusDays(deviation + extra)
         )
     }
 
@@ -87,26 +85,30 @@ data class CycleHistory(
         }
 
         val stats = stats()
+        val disruptorReasons = disruptorReasons()
+        val hasDisruptors = disruptorReasons.isNotEmpty()
 
-        return when {
-            stats.standardDeviation <= 2.0 ->
-                PredictionExplanation(
-                    confidence = PredictionConfidence.HIGH,
-                    reasons = listOf("Cycle length has been very consistent")
-                )
-
-            stats.standardDeviation <= 5.0 ->
-                PredictionExplanation(
-                    confidence = PredictionConfidence.MEDIUM,
-                    reasons = listOf("Some variation in cycle length detected")
-                )
-
-            else ->
-                PredictionExplanation(
-                    confidence = PredictionConfidence.LOW,
-                    reasons = listOf("Cycle length varies significantly between cycles")
-                )
+        // Disruptors (high stress / illness) drop confidence by one level
+        val baseConfidence = when {
+            stats.standardDeviation <= 2.0 -> PredictionConfidence.HIGH
+            stats.standardDeviation <= 5.0 -> PredictionConfidence.MEDIUM
+            else -> PredictionConfidence.LOW
         }
+
+        val finalConfidence = if (hasDisruptors) baseConfidence.downgrade() else baseConfidence
+
+        val reasons = buildList {
+            add(
+                when (baseConfidence) {
+                    PredictionConfidence.HIGH -> "Cycle length has been very consistent"
+                    PredictionConfidence.MEDIUM -> "Some variation in cycle length detected"
+                    PredictionConfidence.LOW -> "Cycle length varies significantly between cycles"
+                }
+            )
+            addAll(disruptorReasons)
+        }
+
+        return PredictionExplanation(confidence = finalConfidence, reasons = reasons)
     }
 
     fun predictNextCycle(): CyclePrediction {
@@ -116,23 +118,53 @@ data class CycleHistory(
 
         val stats = stats()
         val predictedDate = predictNextCycleStartDate().predictedStartDate
+        val disruptorReasons = disruptorReasons()
+        val hasDisruptors = disruptorReasons.isNotEmpty()
 
-        val confidence =
-            when {
-                stats.standardDeviation <= 3.0 -> PredictionConfidence.HIGH
-                stats.standardDeviation <= 6.0 -> PredictionConfidence.MEDIUM
-                else -> PredictionConfidence.LOW
-            }
+        val baseConfidence = when {
+            stats.standardDeviation <= 3.0 -> PredictionConfidence.HIGH
+            stats.standardDeviation <= 6.0 -> PredictionConfidence.MEDIUM
+            else -> PredictionConfidence.LOW
+        }
+
+        val finalConfidence = if (hasDisruptors) baseConfidence.downgrade() else baseConfidence
+
+        val reasons = buildList {
+            addAll(predictionReasons(stats))
+            addAll(disruptorReasons)
+        }
 
         return CyclePrediction(
             predictedStartDate = predictedDate,
             explanation = PredictionExplanation(
-                confidence = confidence,
-                reasons = predictionReasons(stats)
+                confidence = finalConfidence,
+                reasons = reasons
             )
         )
     }
 
+    /**
+     * Checks the most recent cycle for known delay factors: high stress (4-5) or illness.
+     */
+    private fun hasRecentDisruptors(): Boolean {
+        val lastCycle = cycles.maxByOrNull { it.startDate } ?: return false
+        return lastCycle.isIll || (lastCycle.stressLevel != null && lastCycle.stressLevel >= 4)
+    }
+
+    /**
+     * Returns human-readable reasons for any disruptors found in recent cycles.
+     */
+    private fun disruptorReasons(): List<String> {
+        val lastCycle = cycles.maxByOrNull { it.startDate } ?: return emptyList()
+        return buildList {
+            if (lastCycle.isIll) {
+                add("Illness was logged in the most recent cycle, which may delay the next period")
+            }
+            if (lastCycle.stressLevel != null && lastCycle.stressLevel >= 4) {
+                add("High stress (level ${lastCycle.stressLevel}/5) was logged, which may affect cycle timing")
+            }
+        }
+    }
 
     private fun predictionReasons(stats: CycleStats): List<String> {
         return buildList {
@@ -149,6 +181,13 @@ data class CycleHistory(
         }
     }
 
-
+    /**
+     * Drops confidence by one level: HIGH -> MEDIUM, MEDIUM -> LOW, LOW stays LOW.
+     */
+    private fun PredictionConfidence.downgrade(): PredictionConfidence = when (this) {
+        PredictionConfidence.HIGH -> PredictionConfidence.MEDIUM
+        PredictionConfidence.MEDIUM -> PredictionConfidence.LOW
+        PredictionConfidence.LOW -> PredictionConfidence.LOW
+    }
 
 }

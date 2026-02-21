@@ -1,5 +1,7 @@
 package org.tracker.agent
 
+import org.tracker.domain.Cycle
+import org.tracker.domain.CycleEntry
 import org.tracker.domain.CycleHistory
 import org.tracker.domain.CyclePrediction
 import org.tracker.domain.PredictionConfidence
@@ -19,22 +21,32 @@ class CyclePredictionAgent(
     private fun save(memory: CyclePredictionMemory) =
         memoryStore.save(userId, memory)
 
+    /**
+     * Records a new period with full symptom data.
+     * Use this overload when rich cycle data is available (preferred).
+     */
+    fun recordPeriod(entry: CycleEntry) {
+        val updated = memory().recordCycle(entry.toCycle())
+        save(updated)
+    }
+
+    /**
+     * Records a new period with just a start date.
+     * Kept for backwards compatibility and simple use cases (e.g. tests).
+     */
     fun recordPeriod(startDate: LocalDate) {
-        val updated = memory().recordCycle(startDate)
+        val updated = memory().recordCycle(Cycle(startDate = startDate))
         save(updated)
     }
 
     fun predictNextCycle(): CyclePrediction {
         val memory = memory()
 
-        val history = CycleHistory(
-            cycles = memory.cycles
-        )
+        val history = CycleHistory(cycles = memory.cycles)
 
         val basePrediction = history.predictNextCycle()
         val learnedConfidence = learnedConfidence(memory)
-        val finalConfidence =
-            learnedConfidence ?: basePrediction.explanation.confidence
+        val finalConfidence = learnedConfidence ?: basePrediction.explanation.confidence
 
         val reasons = buildList {
             addAll(basePrediction.explanation.reasons)
@@ -42,12 +54,9 @@ class CyclePredictionAgent(
             if (learnedConfidence != null) {
                 add(
                     when (learnedConfidence) {
-                        PredictionConfidence.HIGH ->
-                            "Past predictions have been very accurate"
-                        PredictionConfidence.MEDIUM ->
-                            "Past predictions have been moderately accurate"
-                        PredictionConfidence.LOW ->
-                            "Past predictions have been inaccurate"
+                        PredictionConfidence.HIGH -> "Past predictions have been very accurate"
+                        PredictionConfidence.MEDIUM -> "Past predictions have been moderately accurate"
+                        PredictionConfidence.LOW -> "Past predictions have been inaccurate"
                     }
                 )
             }
@@ -83,16 +92,14 @@ class CyclePredictionAgent(
         save(
             memory
                 .recordPredictionResult(result)
-                .recordCycle(actualStartDate)
+                .recordCycle(Cycle(startDate = actualStartDate))
         )
     }
 
     fun predictionResults(): List<CyclePredictionResult> =
         memory().predictionResults
 
-    private fun learnedConfidence(
-        memory: CyclePredictionMemory
-    ): PredictionConfidence? {
+    private fun learnedConfidence(memory: CyclePredictionMemory): PredictionConfidence? {
         if (memory.predictionResults.size < 2) return null
 
         val averageError = memory.predictionResults
@@ -107,3 +114,16 @@ class CyclePredictionAgent(
         }
     }
 }
+
+/**
+ * Maps a CycleEntry (API/input layer) to an enriched Cycle (domain layer).
+ * This is the bridge that allows the statistical engine to use symptom data.
+ */
+private fun CycleEntry.toCycle(): Cycle = Cycle(
+    startDate = this.periodStart,
+    stressLevel = this.stressLevel,
+    isIll = this.isIll,
+    flowIntensity = this.flowIntensity,
+    cervicalMucus = this.cervicalMucus,
+    notes = this.notes,
+)

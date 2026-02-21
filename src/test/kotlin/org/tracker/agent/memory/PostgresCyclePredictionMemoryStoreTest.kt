@@ -62,21 +62,51 @@ class PostgresCyclePredictionMemoryStoreTest {
     private fun createSchema() {
         jdbcTemplate.execute(
             """
-        CREATE TABLE IF NOT EXISTS users (
-            id UUID PRIMARY KEY
-        );
-        """.trimIndent()
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY
+            )
+            """.trimIndent()
         )
 
         jdbcTemplate.execute(
             """
-        CREATE TABLE IF NOT EXISTS cycles (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            period_start DATE NOT NULL,
-            period_duration INT NOT NULL
-        );
-        """.trimIndent()
+            CREATE TABLE IF NOT EXISTS cycles (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                period_start    DATE NOT NULL,
+                period_duration INT NOT NULL,
+                stress_level    INT,
+                illness         BOOLEAN DEFAULT FALSE,
+                flow_intensity  VARCHAR(20),
+                cervical_mucus  VARCHAR(20),
+                notes           TEXT
+            )
+            """.trimIndent()
+        )
+
+        jdbcTemplate.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_state (
+                user_id             UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                last_predicted_date DATE,
+                last_confidence     VARCHAR(20),
+                last_reasons        TEXT[],
+                updated_at          TIMESTAMP NOT NULL DEFAULT now()
+            )
+            """.trimIndent()
+        )
+
+        jdbcTemplate.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prediction_results (
+                id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                predicted_date      DATE NOT NULL,
+                actual_date         DATE NOT NULL,
+                difference_in_days  INT NOT NULL,
+                created_at          TIMESTAMP NOT NULL DEFAULT now()
+            )
+            """.trimIndent()
         )
     }
 

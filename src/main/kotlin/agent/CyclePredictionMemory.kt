@@ -13,8 +13,8 @@ class CyclePredictionMemory(
     val predictionResults: List<CyclePredictionResult> = emptyList(),
     val lastPrediction: CyclePrediction? = null
 ) {
-    fun recordCycle(startDate: LocalDate): CyclePredictionMemory =
-        copy(cycles = cycles + Cycle(startDate))
+    fun recordCycle(cycle: Cycle): CyclePredictionMemory =
+        copy(cycles = cycles + cycle)
 
     fun recordPredictionResult(
         result: CyclePredictionResult

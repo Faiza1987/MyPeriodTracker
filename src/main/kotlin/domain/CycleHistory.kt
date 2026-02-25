@@ -1,5 +1,6 @@
 package org.tracker.domain
 
+import org.tracker.exceptions.InsufficientCycleHistoryException
 import java.time.LocalDate
 
 import java.time.temporal.ChronoUnit
@@ -53,9 +54,7 @@ data class CycleHistory(
     }
 
     fun predictNextCycleStart(): LocalDate {
-        if (!canPredict()) {
-            throw IllegalStateException("Not enough cycle data to make a prediction")
-        }
+        if (!canPredict()) throw InsufficientCycleHistoryException()
         return predictNextCycleStartDate().predictedStartDate
     }
 
@@ -112,9 +111,7 @@ data class CycleHistory(
     }
 
     fun predictNextCycle(): CyclePrediction {
-        if (!canPredict()) {
-            throw IllegalStateException("Not enough data to predict next cycle")
-        }
+        if (!canPredict()) throw InsufficientCycleHistoryException()
 
         val stats = stats()
         val predictedDate = predictNextCycleStartDate().predictedStartDate

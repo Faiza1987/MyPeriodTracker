@@ -99,6 +99,10 @@ class CyclePredictionAgent(
     fun predictionResults(): List<CyclePredictionResult> =
         memory().predictionResults
 
+    fun getCycles(): List<Cycle> =
+        memory().cycles
+
+
     private fun learnedConfidence(memory: CyclePredictionMemory): PredictionConfidence? {
         if (memory.predictionResults.size < 2) return null
 

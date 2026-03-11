@@ -6,41 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_BASE_URL, USER_ID } from '../config/api';
 import { styles } from '../styles/index-styles';
 import { CycleHistoryResponse, CycleStats, Prediction } from '../types/cycles';
+import { computeCycleDay, confidenceColor, daysUntil } from '../utils/cycle-helpers';
 
-
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function computeCycleDay(latestPeriodStart: string): number {
-  const start = new Date(latestPeriodStart);
-  const today = new Date();
-  const diff = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  
-  return diff + 1;
-}
-
-function daysUntil(dateStr: string): string {
-  const target = new Date(dateStr);
-  const today = new Date();
-
-  today.setHours(0,0,0,0);
-
-  const diff = Math.floor((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-  if(diff < 0) return 'Period is overdue';
-  if(diff === 0) return 'Period may start today'
-
-  return `In ${diff} days`;
-}
-
-
-function confidenceColor(confidence: string) : string {
-  switch(confidence) {
-    case 'HIGH': return '#22C55E';
-    case 'MEDIUM': return '#F59E0B';
-    case 'LOW': return '#EF4444';
-    default: return '#94A3B8';
-  }
-}
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 export default function HomeScreen() {

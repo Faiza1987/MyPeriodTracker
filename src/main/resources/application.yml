@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/periodtracker
-    username: postgres
-    password: postgres
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/periodtracker}
+    username: ${PGUSER:postgres}
+    password: ${PGPASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
   flyway:
@@ -12,17 +12,16 @@ spring:
     init:
       mode: never
 
-  # === Spring AI + Gemini (via OpenAI compat) ===
   ai:
     openai:
-      api-key: ${GEMINI_API_KEY}  # Pulls from env var
+      api-key: ${GEMINI_API_KEY}
       base-url: https://generativelanguage.googleapis.com/v1beta/openai/
       chat:
         options:
-          model: gemini-1.5-flash  # Fast for dev; use gemini-1.5-pro for better results
+          model: gemini-1.5-flash
 
 logging:
   level:
     org.springframework.jdbc.core: DEBUG
     org.springframework.jdbc.datasource: DEBUG
-    org.springframework.ai: DEBUG  # Helpful for AI debugging
+    org.springframework.ai: DEBUG

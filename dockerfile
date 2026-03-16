@@ -8,6 +8,6 @@ RUN GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx384m -XX:MaxMetaspaceSize=128m -Dorg.g
 # Stage 2: Run the JAR
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-COPY --from=builder /app/build/libs/myperiodtracker-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=builder /app/build/libs/*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-Xmx300m", "-Xms100m", "-XX:+UseSerialGC", "-jar", "app.jar"]

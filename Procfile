@@ -1,1 +1,0 @@
-web: ./gradlew bootJar -x test && java -jar build/libs/myperiodtracker-0.0.1-SNAPSHOT.jar --server.port=$PORT

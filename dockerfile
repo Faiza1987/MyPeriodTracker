@@ -2,7 +2,8 @@
 FROM gradle:8.5-jdk21 AS builder
 WORKDIR /app
 COPY . .
-RUN gradle bootJar -x test --no-daemon
+RUN GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx384m -XX:MaxMetaspaceSize=128m -Dorg.gradle.daemon=false" \
+    ./gradlew bootJar -x test --no-daemon
 
 # Stage 2: Run the JAR
 FROM eclipse-temurin:21-jre-alpine

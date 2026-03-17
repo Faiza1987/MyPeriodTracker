@@ -3,14 +3,14 @@ import { useRouter } from 'expo-router';
 import { CheckCircle, ChevronLeft, Droplets } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_BASE_URL, USER_ID } from '../config/api';
@@ -43,19 +43,20 @@ export default function LogPeriodScreen() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/agent/period`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: USER_ID,
-          periodStart: periodStart.toISOString().split('T')[0], // YYYY-MM-DD
-          flowIntensity: flowIntensity ?? undefined,
-          cervicalMucus: cervicalMucus ?? undefined,
-          stressLevel: stressLevel ?? undefined,
-          isIll,
-          notes: notes.trim() || undefined,
-        }),
-      });
+const response = await fetch(`${API_BASE_URL}/api/agent/period`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  signal: AbortSignal.timeout(180000), // wait up to 3 minutes
+  body: JSON.stringify({
+    userId: USER_ID,
+    periodStart: periodStart.toISOString().split('T')[0],
+    flowIntensity: flowIntensity ?? undefined,
+    cervicalMucus: cervicalMucus ?? undefined,
+    stressLevel: stressLevel ?? undefined,
+    isIll,
+    notes: notes.trim() || undefined,
+  }),
+});
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 

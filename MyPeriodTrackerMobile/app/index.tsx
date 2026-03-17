@@ -32,7 +32,6 @@ export default function HomeScreen() {
     try {
       const [cycleRes, predictionRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/agent/cycles?userId=${USER_ID}`, {
-          signal: AbortSignal.timeout(180000)
         }),
         fetch(`${API_BASE_URL}/api/agent/prediction?userId=${USER_ID}`).catch(() => null),
       ]);

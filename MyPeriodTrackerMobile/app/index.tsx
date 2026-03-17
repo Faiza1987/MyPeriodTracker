@@ -50,6 +50,7 @@ export default function HomeScreen() {
         setPrediction(predictionData);
       }
     } catch (e) {
+      Alert.alert('Error', String(e)); // temporary debug
       setError('Could not load data.');
     } finally {
       setLoading(false);

@@ -43,20 +43,20 @@ export default function LogPeriodScreen() {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-const response = await fetch(`${API_BASE_URL}/api/agent/period`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  signal: AbortSignal.timeout(180000), // wait up to 3 minutes
-  body: JSON.stringify({
-    userId: USER_ID,
-    periodStart: periodStart.toISOString().split('T')[0],
-    flowIntensity: flowIntensity ?? undefined,
-    cervicalMucus: cervicalMucus ?? undefined,
-    stressLevel: stressLevel ?? undefined,
-    isIll,
-    notes: notes.trim() || undefined,
-  }),
-});
+      const response = await fetch(`${API_BASE_URL}/api/agent/period`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(180000), // wait up to 3 minutes
+        body: JSON.stringify({
+          userId: USER_ID,
+          periodStart: periodStart.toISOString().split('T')[0],
+          flowIntensity: flowIntensity ?? undefined,
+          cervicalMucus: cervicalMucus ?? undefined,
+          stressLevel: stressLevel ?? undefined,
+          isIll,
+          notes: notes.trim() || undefined,
+        }),
+      });
 
       if (!response.ok) throw new Error(`Server error: ${response.status}`);
 

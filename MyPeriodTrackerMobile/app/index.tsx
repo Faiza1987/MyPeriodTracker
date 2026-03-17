@@ -1,7 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Brain, Calendar, Droplets, Plus } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { API_BASE_URL, USER_ID } from '../config/api';
 import { styles } from '../styles/index-styles';
@@ -26,6 +26,7 @@ export default function HomeScreen() {
   );
 
   const loadData = async () => {
+    Alert.alert('URL', API_BASE_URL); // temporary debug
     setLoading(true);
     setError(null);
     try {
